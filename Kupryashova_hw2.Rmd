@@ -1,0 +1,147 @@
+---
+title: "Clusterization"
+author: "kupryashova"
+date: "April 4, 2017"
+output: html_document
+---
+
+```{r setup, message = FALSE}
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(amap)
+library(dbscan)
+options(width=120)
+```
+
+## Задание 1. Иерархическая кластеризация
+
+```{r data}
+counts <- read.csv("GSE89225_Illumina_counts.csv", row.names=1)
+conditions <- read.csv("conditions.csv", row.names=1)
+mart <- read.table("human_mart.txt", sep="\t", header=1, check.names = F) # не нужен вроде
+
+print(counts[1:6, 1:2]) #экспрессии у разных пациентов(34-1)
+dim(counts)
+
+head(conditions) # тип рака и клеток у пациентов
+dim(conditions)
+
+head(mart)  #данные по последовательностям
+dim(mart)
+```
+
+Возьмем весь датасет с аутлаером
+Создадим DeseqDataSet объект (дизайн не важен)
+Оставим только 8000 экспрессированых генов
+Используем rlog(dds) для получения логарифмированных значений экспрессии
+
+```{r deseq2_}
+dds <- DESeqDataSetFromMatrix(countData = counts, 
+                              colData = conditions,
+                              design = ~ tissue + cells)
+dds <- dds[names(sort(rowSums(counts(dds)), decreasing = TRUE)[1:8000]), ] # отсекаем 8000 самых экспр генов
+
+dds <- DESeq(dds)
+#dds <- vst(dds) 
+dds_log<- rlog(dds) # чем blind отличается от не blind , чем sort отличается от order
+# чем принципиально DESeqTransform от DESeqDataSetFromMatrix отличается
+counts.norm <- assay(dds_log)
+
+```
+
+Посчитаем корреляции между образцами используя cor (результатом будет матрица размера m×m, где m – количество образцов)
+Посчитаем матрицу “непохожести” 1 - cor, и dist объект для этой матрицы
+Сделаем кластеризацию с помощью функции hclust, используя три разных метода “связывания” объектов в группы: average, complete and single
+
+```{r cor-clust}
+dds_cor <- cor(counts.norm)
+dds_cor_rv <- 1 - dds_cor
+dds_cor_rv_dist <- dist(dds_cor_rv)
+
+dds_cor_rv_hclust1 <- hclust(dds_cor_rv_dist, method = "average")
+dds_cor_rv_hclust2 <- hclust(dds_cor_rv_dist, method = "complete")
+dds_cor_rv_hclust3 <- hclust(dds_cor_rv_dist, method = "single")
+
+```
+
+Построим для каждой график с помощью plot
+
+```{r}
+plot(dds_cor_rv_hclust1)
+plot(dds_cor_rv_hclust2)
+plot(dds_cor_rv_hclust3)
+```
+
+##Задание 2. K-means.
+
+Используем K-means для описания паттернов экспрессии
+
+Возьмем весь датасет без аутлаера
+
+```{r data 2}
+#  Removing outlier -  treg_NBP_patient3 (нашли на PCA-plot, aes(...label  = rownames(to_plot),...) + geom_label())
+counts$treg_NBP_patient3 <- NULL
+conditions <- conditions[-which(rownames(conditions) == 'treg_NBP_patient3'),]
+
+```
+
+Создадим DeseqDataSet объект (дизайн не важен)
+Оставим только 8000 экспрессированных генов
+Используем rlog(dds) для получения логарифмированных значений экспрессии
+
+```{r deseq2}
+
+dds2 <- DESeqDataSetFromMatrix(countData = counts, 
+                              colData = conditions,
+                              design = ~ tissue + cells)
+dds2 <- dds2[names(sort(rowSums(counts(dds2)), decreasing = TRUE)[1:8000]), ] # отсекаем 8000 самых экспр генов
+
+dds2 <- DESeq(dds2)
+#dds2 <- vst(dds2) 
+dds2_log<- rlog(dds2) # чем blind отличается от не blind , чем sort отличается от order
+# чем принципиально DESeqTransform от DESeqDataSetFromMatrix отличается
+counts.norm2 <- assay(dds2_log)
+```
+
+Используем функцию Kmeans из пакета amap с методом “correlation”, c количеством кластеров равным 6. (Вы можете выбрать своё количество кластеров), и максимальным количеством итераций равным 20000
+После этого вы можете достать соотвествие каждого гена кластеру с помощью элемента листа с названием “cluster”
+
+```{r kmeans}
+clustering <- Kmeans(counts.norm2, 6, method="correlation", iter.max=20000)
+head(clustering$cluster)
+```
+
+После этого от вас потребуется эту кластеризацию изобразить на хитмапе: гены должны быть отсортированы по кластерам, а столбцы сначала по клеткам, а затем по тканям.
+
+```{r sorted heatmap}
+counts.norm2_sorted <- counts.norm2[names(sort(clustering$cluster)), ] # по кластерам
+conditions_sorted <- conditions[order(conditions$cells,conditions$tissue),] # по клеткам и тканям
+counts.norm2_sorted_all <- counts.norm2_sorted[ , rownames(conditions_sorted)]
+
+ann_row <- data.frame(row.names = names(clustering$cluster), Cluster = as.factor(clustering$cluster))
+to_visualise <- t(apply(counts.norm2_sorted_all, 1, function(r) {
+  (r - min(r)) / (max(r) - min(r))
+}))
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = conditions, annotation_row = ann_row) # откуда на моем графике белые полосы
+```
+
+##Задание 3. Density-based algorithms
+
+```{r dbscan}
+library(dbscan)
+ta <- read.csv(file = 'projection.csv')
+
+str(ta)
+head(ta)
+ta$scan <- factor(dbscan(ta[2:3], 2, minPts = 1)$cluster)
+str(ta)
+plot(ta$TSNE.1,ta$TSNE.2)
+ggplot(data = ta, aes(x=TSNE.1,y=TSNE.2, color=scan))+
+  geom_point(size=1)
+
+```
+
