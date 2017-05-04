@@ -11,7 +11,7 @@ library(RSQLite)
 library(DBI)
 ```
 
-```{r setup, warning=FALSE, message=F, cache=TRUE}
+```{r setup, warning=FALSE, message=F}
 mydb <- dbConnect(RSQLite::SQLite(), "data.sqlite")
 dbListTables(mydb)
 head(dbGetQuery(mydb, "SELECT * FROM Users"))
@@ -24,7 +24,7 @@ head(dbGetQuery(mydb, "SELECT * FROM Listened"))
 1.Перечислить пользователей в алфавитном порядке username (все
 колонки в любом порядке)
 ```{r}
-head(dbGetQuery(mydb, "SELECT * FROM Users
+head(dbGetQuery(mydb, "SELECT * FROM Users 
                 order by username"))
 ```
 2. 5 пользователей, которые зарегистрировались последними (все
@@ -55,11 +55,14 @@ head(dbGetQuery(mydb,"SELECT name, n FROM
 5. Информацию об исполнителях и количестве их песен (имя ис-
 полнителя|число)
 ```{r}
-head(dbGetQuery(mydb, "SELECT name, sum(songsinalbum) as songs  FROM
-                  (SELECT album_id, count(name) as songsinalbum FROM Songs group by album_id) join                      (SELECT  artist_id, id as album_id FROM Albums GROUP BY artist_id) using (album_id) 
-                  join (SELECT id as artist_id, name FROM Artists) using (artist_id)
-                  GROUP BY artist_id"))
+head(dbGetQuery(mydb, "SELECT name, count(song_id) as songs  FROM
+                  (SELECT album_id, id as song_id  FROM Songs) join
+                  (SELECT  artist_id as id, id as album_id FROM Albums) using (album_id) 
+                  join Artists using(id)
+                GROUP BY id"))
+  
 ```
+
 6. Самый длинный альбом по числу песен. (имя исполнителя|название
 альбома|число)
 ```{r}
@@ -137,7 +140,7 @@ head(dbGetQuery(mydb, "SELECT  username, name, album_title, song_title, listened
            (SELECT id as song_id, name as song_title, album_id FROM Songs) using (song_id) join 
            (SELECT id as album_id, artist_id as id, name as album_title FROM Albums) join
            Artists using(id)
-           group by username, song_title"))
+           group by username, song_id"))
 
 dbDisconnect(mydb)
 

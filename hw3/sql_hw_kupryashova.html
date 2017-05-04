@@ -186,7 +186,7 @@ dbListTables(mydb)</code></pre>
 ## 5      21    1485 2012-12-04 11:47:21
 ## 6      12    7944 2007-09-26 23:34:58</code></pre>
 <p>1.Перечислить пользователей в алфавитном порядке username (все колонки в любом порядке)</p>
-<pre class="r"><code>head(dbGetQuery(mydb, &quot;SELECT * FROM Users
+<pre class="r"><code>head(dbGetQuery(mydb, &quot;SELECT * FROM Users 
                 order by username&quot;))</code></pre>
 <pre><code>##   id        username          registered
 ## 1 75   Alex_Gallywix 2013-02-02 14:39:19
@@ -245,15 +245,16 @@ dbGetQuery(mydb, &quot;SELECT * FROM Users
 <ol start="5" style="list-style-type: decimal">
 <li>Информацию об исполнителях и количестве их песен (имя ис- полнителя|число)</li>
 </ol>
-<pre class="r"><code>head(dbGetQuery(mydb, &quot;SELECT name, sum(songsinalbum) as songs  FROM
-                  (SELECT album_id, count(name) as songsinalbum FROM Songs group by album_id) join                      (SELECT  artist_id, id as album_id FROM Albums GROUP BY artist_id) using (album_id) 
-                  join (SELECT id as artist_id, name FROM Artists) using (artist_id)
-                  GROUP BY artist_id&quot;))</code></pre>
+<pre class="r"><code>head(dbGetQuery(mydb, &quot;SELECT name, count(song_id) as songs  FROM
+                  (SELECT album_id, id as song_id  FROM Songs) join
+                  (SELECT  artist_id as id, id as album_id FROM Albums) using (album_id) 
+                  join Artists using(id)
+                GROUP BY id&quot;))</code></pre>
 <pre><code>##                 name songs
-## 1             Exilio     9
+## 1             Exilio    30
 ## 2         Santorsola    12
-## 3 Ramón Roig y Torné    15
-## 4           A Frames    17
+## 3 Ramón Roig y Torné    71
+## 4           A Frames   281
 ## 5   Michael De Mound     2
 ## 6     Viki Ostrovsky     1</code></pre>
 <ol start="6" style="list-style-type: decimal">
@@ -405,21 +406,14 @@ dbGetQuery(mydb, &quot;SELECT * FROM Users
            (SELECT id as song_id, name as song_title, album_id FROM Songs) using (song_id) join 
            (SELECT id as album_id, artist_id as id, name as album_title FROM Albums) join
            Artists using(id)
-           group by username, song_title&quot;))</code></pre>
-<pre><code>##        username           name album_title
-## 1 Alex_Gallywix Jacques Marugg        Live
-## 2 Alex_Gallywix Jacques Marugg        Live
-## 3 Alex_Gallywix Jacques Marugg        Live
-## 4 Alex_Gallywix Jacques Marugg        Live
-## 5 Alex_Gallywix Jacques Marugg        Live
-## 6 Alex_Gallywix Jacques Marugg        Live
-##                                               song_title listened
-## 1                                    Ambush On All Sides        1
-## 2                                Arthur And The Aqueduct        1
-## 3                           Bangkok City [Original Ver.]        1
-## 4 Black Rainbow (Malbetrieb &amp; Rik Woldring Extended Dub)        1
-## 5                                         Budget Meeting        1
-## 6                                                 Bynatt        2</code></pre>
+           group by username, song_id&quot;))</code></pre>
+<pre><code>##        username           name album_title            song_title listened
+## 1 Alex_Gallywix Jacques Marugg        Live   Certamen Levantino         1
+## 2 Alex_Gallywix Jacques Marugg        Live              Chemical        2
+## 3 Alex_Gallywix Jacques Marugg        Live             Statement        2
+## 4 Alex_Gallywix Jacques Marugg        Live Dress In Black (Demo)        2
+## 5 Alex_Gallywix Jacques Marugg        Live       I Like The Cock        1
+## 6 Alex_Gallywix Jacques Marugg        Live                 Day 3        3</code></pre>
 <pre class="r"><code>dbDisconnect(mydb)</code></pre>
 </div>
 
