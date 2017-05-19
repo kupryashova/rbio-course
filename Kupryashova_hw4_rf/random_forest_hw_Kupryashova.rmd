@@ -1,0 +1,251 @@
+---
+title: "Random_forest_hw"
+author: "kupryashova"
+date: "May 4, 2017"
+output: html_document
+---
+##Восстановление возраста по данным метилирования
+Данные для этой данной домашней работы мы возьмем из статьи “A novel strategy for forensic age prediction by DNA methylation and support vector regression model”, Cheng Xu et al, Scientific reports 2015. (Статья будет в архиве), где авторы попытались построить предсказатель возраста человека по данным метилирования отдельных CpG sites. Данные будут выглядеть следующим образом:
+В табличке “ages.tsv” лежат идентификаторы доноров, возраст, и название array, которым это всё добро сделали.
+```{r}
+ages <- read.table("ages.tsv", sep="\t", header=1)
+head(ages)
+```
+
+В табличке “methylation.tsv” лежат данные про CpG сайты, где эти сайты на геноме находятся, а что самое главное, доля метилирования каждого сайта у наших доноров. 
+
+```{r}
+methylation <- read.table("methylation.tsv", sep="\t", header=1, row.names = 1, na.strings = "NA")
+print(methylation[1:5, 1:10])
+```
+
+Однако в этой табличке также есть NA-значения, авторы статьи утверждают, что это означает “no methylation detected”, и считают их за 0 (вам я их тоже предлагаю считать за 0).
+```{r}
+methylation[is.na(methylation)] <- 0
+```
+##Предподготовка данных
+Вообще сайтов метилирования там какое-то не очень большое количество (95 сайтов), однако часть из них абсолютно не скоррелирована с возрастом, и наверняка вряд ли поможет нам в решении задачи регрессии. Хочется проделать примерно то же, что проделали авторы статьи – сделать ручками очень простой feature selection. Давайте оставим только те сайты метилирования, которые наиболее скоррелированы с возрастом.
+
+Предподготовка:
+Для каждого сайта метилирования, посчитать корреляцию между долей метилирования этого сайта в доноре и возрасте донора.
+Оставить только 10 самых скоррелированных сайтов. Под самыми скоррелированными мы понимаем абсолютное значение корреляции.
+
+```{r}
+for_cor <- cbind(ages$Age, t(methylation[,4:ncol(methylation)]))
+max_cor_site <- order(abs(cor(for_cor[,1], for_cor[,2:ncol(for_cor)])), decreasing = TRUE)[1:10]
+max_cor_methylation <- methylation[max_cor_site,]
+```
+
+##Предподготовка данных (machine learning)
+Ну мы же теперь талантливые computer/data scientists, и знаем, что нужно разделить наши данные на обучающую и тестовую выборку. Я предлагаю сделать это в отношении 80% : 20%, т.е. 40 тренировочных доноров и 10 тестирующих доноров.
+
+Предподготовка:
+
+Установить random seed тем значением, которое вам нравится
+Сделать разбиение всех доноров на тренировочную и тестирующие выборки
+```{r}
+set.seed(255)
+training <- sample(4:53, 40)
+validation <- (4:53)[-training]
+
+#train <- cbind(max_cor_methylation[, training], Position = max_cor_methylation$Position)
+#valid <- cbind(max_cor_methylation[, validation], Position=max_cor_methylation$Position)
+train <- as.data.frame(t(max_cor_methylation[, training]))
+valid <- as.data.frame(t(max_cor_methylation[, validation]))
+train_res <- ages$Age[ages$Sample %in% rownames(train)]
+valid_res <- ages$Age[ages$Sample %in% rownames(valid)]
+```
+##Построение лесов
+
+Функция-обертка
+```{r}
+library(randomForest)
+library(rpart)
+library(ggplot2)
+#' randomForest wrapper and error estimator
+#'
+#' @param train.data data.frame, training dataset
+#' @param train.response numeric vector, values of dependent variables in training dataset
+#' @param test.data data.frame, testing (validation) dataset
+#' @param test.response numeric vector, values of dependent variables in testing dataset
+#' @param runs.number numeric (integer), how many times we should run random forest
+#' @param ... parameters that are passes to randomForest function, like
+#'        ntree, mtry, nodesize, replace, sampsize
+#'
+#' @return numeric vector with two values, 
+#'      first is mean of RMSE values on training data
+#'      second is mean of RMSE values on testing data
+#' @export
+#'
+#' @examples
+wrapper <- function(train.data, train.response,
+                    test.data, test.response, 
+                    runs.number=50, ...) {
+  RMSE_train_all <- vector(length = runs.number)
+  RMSE_test_all <- vector(length = runs.number)
+
+  for (i in (1:runs.number)){
+  fit.rf <- randomForest(train.response ~ .,
+                       data=train.data, ...) 
+  prediction_train <- predict(fit.rf, train.data)
+  RMSE_train_all[i] <- sqrt(sum((prediction_train - train.response)^2)/40)
+  prediction_valid <- predict(fit.rf, test.data) 
+  RMSE_test_all[i] <- sqrt(sum((prediction_valid - test.response)^2)/10)
+  }
+return(c(mean(RMSE_train_all),mean(RMSE_test_all)))
+}
+```
+
+Теперь, когда вы написали функцию-обертку можно приступать к обучению random forest с разными параметрами, и смотреть на значения RMSE, которые при таком обучении получаются.
+
+```{r}
+#переобученное
+#errors.overfit <- wrapper(train, train_res, valid, valid_res,runs.number = 50,
+  #                        nodesize=1, replace=F, sampsize=40, mtry=10, ntree=100)
+#print(errors.overfit)
+```
+
+##NTREE
+
+```{r}
+a <- vector(length=40)
+b <- vector(length=40)
+c = 0
+for (i in seq(1, 200, 5)){
+  c =c+1
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50, ntree=i)
+a[c] <- out[2]
+b[c] <- out[1]
+}
+plot(a)
+ntree_opt <- which.min(a)*5
+```
+ntree=100
+```{r}
+ntree_table <- data.frame(test_RMSE = a, train_RMSE = b,ntree = seq(1, 200, 5))
+ggplot(data = ntree_table, aes(ntree))+
+  geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
+```
+
+##REPLACE AND SAMPSIZE
+
+```{r}
+a <- vector(length=40)
+b <- vector(length=40)
+for (i in (1:40)){
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = T, ntree=50, mtry=10, nodesize=1)
+a[i] <- out[2]
+b[i] <- out[1]
+}
+sampsize_replace_T_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:40)
+
+ggplot(data = sampsize_replace_T_table, aes(sampsize))+
+  geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
+
+a <- vector(length=40)
+b <- vector(length=40)
+for (i in (1:40)){
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = F, ntree=50, mtry=10, nodesize=1)
+a[i] <- out[2]
+b[i] <- out[1]
+}
+sampsize_replace_F_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:40)
+
+
+
+ggplot(data = sampsize_replace_F_table, aes(sampsize))+
+  geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
+
+```
+
+На этих легко переобучаемых деревьях переобучение наступает сразу. replace=F дает менее переобученное дерево.
+
+##NODESIZE
+
+```{r}
+a <- vector(length=40)
+b <- vector(length=40)
+for (i in (1:40)){
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 3,replace = F, ntree=50, mtry=10, nodesize=i)
+a[i] <- out[2]
+b[i] <- out[1]
+}
+nodesize_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:40)
+
+ggplot(data = nodesize_table, aes(sampsize))+
+  geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
+```
+
+Модель переобучена при малых значениях  nodesize. 
+nodesize=7
+
+##MTRY
+
+```{r}
+a <- vector(length=10)
+b <- vector(length=10)
+for (i in (1:10)){
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 3,replace = T, ntree=50, mtry=i, nodesize=7)
+a[i] <- out[2]
+b[i] <- out[1]
+}
+mtry_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:10)
+
+ggplot(data = mtry_table, aes(sampsize))+
+  geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
+```
+
+Переобучение увеличивается при увеличении mtry. Если под переобучением подразумевать увеличение разницы между ошибкой на обучающих и валидирующих данных. Сама ошибка на оучающих данных с ростом mtry растет незначительно.
+mtry=4
+
+##cross-validation
+
+Сделаем кросс-валидацию  со значениями по умолчанию:
+```{r}
+max_cor_methylation <- max_cor_methylation[,4:53]
+
+# splitting our dataset into 5 equal parts
+cross.validation <- matrix(sample(1:50, 50), nrow=5, ncol=10)
+cross.validation
+
+
+cross.results <- apply(cross.validation, 1, function(test.sample){
+  # using each part as testing dataset
+  # using rest of the dataset as training dataset
+  train.sample <- (1:50)[-test.sample]
+  train.data <- t(max_cor_methylation[,train.sample])
+  train.response <- ages$Age[train.sample]
+  test.data <- t(max_cor_methylation[, test.sample])
+  test.response <- ages$Age[test.sample]
+  
+  # calculating RMSE for every part and default random forest
+  return(wrapper(train.data, train.response, test.data, test.response, 100))
+})
+
+print(cross.results)
+print(rowMeans(cross.results))
+
+
+```
+
+И с подобранными значениями для RandomForest
+
+```{r}
+cross.results2 <- apply(cross.validation, 1, function(test.sample){
+  # using each part as testing dataset
+  # using rest of the dataset as training dataset
+  train.sample <- (1:50)[-test.sample]
+  train.data <- t(max_cor_methylation[,train.sample])
+  train.response <- ages$Age[train.sample]
+  test.data <- t(max_cor_methylation[, test.sample])
+  test.response <- ages$Age[test.sample]
+  
+  # calculating RMSE for every part and default random forest
+  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, nodesize=7, replace=F, ntree=100, sampsize=3, mtry=4))
+})
+
+print(cross.results2)
+print(rowMeans(cross.results2))
+```
+
+И выясним, что ошибка на тренировочных и валидирующих данных при кроссвалидации с использованием параметров по умолчанию ниже, чем при подобранных вручную.
