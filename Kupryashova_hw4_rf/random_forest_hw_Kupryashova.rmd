@@ -32,7 +32,7 @@ methylation[is.na(methylation)] <- 0
 
 ```{r}
 for_cor <- cbind(ages$Age, t(methylation[,4:ncol(methylation)]))
-max_cor_site <- order(abs(cor(for_cor[,1], for_cor[,2:ncol(for_cor)])), decreasing = TRUE)[1:10]
+max_cor_site <- sort(order(abs(cor(for_cor[,1], for_cor[,2:ncol(for_cor)])), decreasing = TRUE)[1:10])
 max_cor_methylation <- methylation[max_cor_site,]
 ```
 
@@ -45,15 +45,18 @@ max_cor_methylation <- methylation[max_cor_site,]
 Сделать разбиение всех доноров на тренировочную и тестирующие выборки
 ```{r}
 set.seed(255)
-training <- sample(4:53, 40)
-validation <- (4:53)[-training]
+training <- sort(sample(1:50, 40))
+validation <- sort((1:50)[-training]) #адекватно работает только если вектор начинается с 1
+
+training <- training + 3
+validation <- validation + 3
 
 #train <- cbind(max_cor_methylation[, training], Position = max_cor_methylation$Position)
 #valid <- cbind(max_cor_methylation[, validation], Position=max_cor_methylation$Position)
 train <- as.data.frame(t(max_cor_methylation[, training]))
 valid <- as.data.frame(t(max_cor_methylation[, validation]))
-train_res <- ages$Age[ages$Sample %in% rownames(train)]
-valid_res <- ages$Age[ages$Sample %in% rownames(valid)]
+train_res <- ages$Age[which(ages$Sample %in% ages$Sample[ages$Sample %in% rownames(train)])] 
+valid_res <- ages$Age[which(ages$Sample %in% ages$Sample[ages$Sample %in% rownames(valid)])]
 ```
 ##Построение лесов
 
@@ -117,10 +120,10 @@ for (i in seq(1, 200, 5)){
 a[c] <- out[2]
 b[c] <- out[1]
 }
-plot(a)
-ntree_opt <- which.min(a)*5
+#plot(a)
+#ntree_opt <- which.min(a)*5
 ```
-ntree=100
+ntree=70
 ```{r}
 ntree_table <- data.frame(test_RMSE = a, train_RMSE = b,ntree = seq(1, 200, 5))
 ggplot(data = ntree_table, aes(ntree))+
@@ -133,7 +136,7 @@ ggplot(data = ntree_table, aes(ntree))+
 a <- vector(length=40)
 b <- vector(length=40)
 for (i in (1:40)){
-  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = T, ntree=50, mtry=10, nodesize=1)
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = T, ntree=70, mtry=10, nodesize=1)
 a[i] <- out[2]
 b[i] <- out[1]
 }
@@ -145,7 +148,7 @@ ggplot(data = sampsize_replace_T_table, aes(sampsize))+
 a <- vector(length=40)
 b <- vector(length=40)
 for (i in (1:40)){
-  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = F, ntree=50, mtry=10, nodesize=1)
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = i,replace = F, ntree=70, mtry=10, nodesize=1)
 a[i] <- out[2]
 b[i] <- out[1]
 }
@@ -158,7 +161,7 @@ ggplot(data = sampsize_replace_F_table, aes(sampsize))+
 
 ```
 
-На этих легко переобучаемых деревьях переобучение наступает сразу. replace=F дает менее переобученное дерево.
+replace=T дает менее переобученное дерево. Sampsize = 40
 
 ##NODESIZE
 
@@ -166,18 +169,18 @@ ggplot(data = sampsize_replace_F_table, aes(sampsize))+
 a <- vector(length=40)
 b <- vector(length=40)
 for (i in (1:40)){
-  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 3,replace = F, ntree=50, mtry=10, nodesize=i)
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 40,replace = T, ntree=70, mtry=10, nodesize=i)
 a[i] <- out[2]
 b[i] <- out[1]
 }
-nodesize_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:40)
+nodesize_table <- data.frame(test_RMSE = a, train_RMSE = b,nodesize = 1:40)
 
-ggplot(data = nodesize_table, aes(sampsize))+
+ggplot(data = nodesize_table, aes(nodesize))+
   geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
 ```
 
-Модель переобучена при малых значениях  nodesize. 
-nodesize=7
+Модель недообучена при больших значениях  nodesize. 
+nodesize=1
 
 ##MTRY
 
@@ -185,18 +188,17 @@ nodesize=7
 a <- vector(length=10)
 b <- vector(length=10)
 for (i in (1:10)){
-  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 3,replace = T, ntree=50, mtry=i, nodesize=7)
+  out <- wrapper(train, train_res, valid, valid_res,runs.number = 50,sampsize = 40,replace = T, ntree=70, mtry=i, nodesize=1)
 a[i] <- out[2]
 b[i] <- out[1]
 }
-mtry_table <- data.frame(test_RMSE = a, train_RMSE = b,sampsize = 1:10)
+mtry_table <- data.frame(test_RMSE = a, train_RMSE = b,mtry = 1:10)
 
-ggplot(data = mtry_table, aes(sampsize))+
+ggplot(data = mtry_table, aes(mtry))+
   geom_line(aes(y = a, colour = "Validation"))+geom_line(aes(y = b, colour = "Training"))
 ```
 
-Переобучение увеличивается при увеличении mtry. Если под переобучением подразумевать увеличение разницы между ошибкой на обучающих и валидирующих данных. Сама ошибка на оучающих данных с ростом mtry растет незначительно.
-mtry=4
+mtry=2
 
 ##cross-validation
 
@@ -241,11 +243,11 @@ cross.results2 <- apply(cross.validation, 1, function(test.sample){
   test.response <- ages$Age[test.sample]
   
   # calculating RMSE for every part and default random forest
-  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, nodesize=7, replace=F, ntree=100, sampsize=3, mtry=4))
+  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, nodesize=1, replace=T, ntree=70, sampsize=40, mtry=2))
 })
 
 print(cross.results2)
 print(rowMeans(cross.results2))
 ```
 
-И выясним, что ошибка на тренировочных и валидирующих данных при кроссвалидации с использованием параметров по умолчанию ниже, чем при подобранных вручную.
+И выясним, что переобучение на тренировочных и валидирующих данных при кроссвалидации с использованием параметров по умолчанию немного выше, чем при подобранных вручную.
